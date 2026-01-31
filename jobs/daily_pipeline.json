@@ -1,0 +1,37 @@
+{
+  "name": "Bronze to Gold Daily Pipeline",
+  "description": "Example job config: run bronze ingest then gold transform. Create in UI: Workflows → Jobs → Create Job, add two tasks (notebooks 01 and 02). Optional.",
+  "tasks": [
+    {
+      "task_key": "bronze_ingest",
+      "notebook_task": {
+        "notebook_path": "/Repos/<your-repo>/notebooks/01_bronze_ingest",
+        "source": "WORKSPACE"
+      },
+      "job_cluster_key": "job_cluster"
+    },
+    {
+      "task_key": "gold_transform",
+      "depends_on": [{"task_key": "bronze_ingest"}],
+      "notebook_task": {
+        "notebook_path": "/Repos/<your-repo>/notebooks/02_gold_transform",
+        "source": "WORKSPACE"
+      },
+      "job_cluster_key": "job_cluster"
+    }
+  ],
+  "job_clusters": [
+    {
+      "job_cluster_key": "job_cluster",
+      "new_cluster": {
+        "spark_version": "14.3.x-scala2.12",
+        "node_type_id": "i3.xlarge",
+        "num_workers": 1
+      }
+    }
+  ],
+  "schedule": {
+    "quartz_cron_expression": "0 0 2 * * ?",
+    "timezone_id": "UTC"
+  }
+}
