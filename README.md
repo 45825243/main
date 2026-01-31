@@ -282,29 +282,30 @@ This section walks through a minimal end-to-end pipeline: raw JSON → Bronze (P
 
 | Layer   | Role                                      | Format   | Where                         |
 |---------|-------------------------------------------|----------|-------------------------------|
-| **Input** | Raw file you upload                      | JSON     | DBFS (e.g. FileStore)         |
+| **Input** | Raw file you upload                      | JSON     | UC Volume `firstdbfs_surfaltics` |
 | **Bronze** | Raw data, minimal changes, columnar     | Parquet  | `.../bronze/events/`          |
 | **Gold**   | Clean, deduplicated, ready for BI/UC   | Delta    | `.../gold/events/`            |
 | **Table**  | Registered in UC for SQL/BI            | Delta    | Unity Catalog `catalog.schema.table` |
 
 ---
 
-### Step 1 — Prepare and upload JSON to DBFS
+### Step 1 — Prepare and upload JSON to a Unity Catalog Volume
+
+We use the Unity Catalog Volume **`firstdbfs_surfaltics`** (catalog `workspace`, schema `default`). Path: **`/Volumes/workspace/default/firstdbfs_surfaltics`**.
 
 1. **Get a JSON file**  
    Use any small JSON (e.g. `data/sample.json` from this repo). The file should be one JSON object per line (NDJSON) so `spark.read.json()` can read it as a table.
 
-2. **Open storage in the Workspace**  
-   In the Workspace: **New** → **Data** (or **Create** → **Data**), then **DBFS** (legacy upload to FileStore) or **Upload files to volume** (Unity Catalog). From a notebook: **File** → **Add data**. This is **DBFS** / Managed Storage — the Workspace’s internal file system. If your UI differs, see [Load data](https://docs.databricks.com/en/ingestion/add-data/index.html) in the docs.
+2. **Open the Volume in the Workspace**  
+   **Catalog** → **workspace** (or your catalog) → **Volumes** → open **firstdbfs_surfaltics** (or create a volume in schema `default`). Upload `sample.json` into the volume (at the root or in a subfolder, e.g. `bronze/input/`). If your UI differs, see [Load data](https://docs.databricks.com/en/ingestion/add-data/index.html) in the docs.
 
-3. **Create a folder and upload**  
-   Create a folder path, e.g. `bronze/input/`, and upload `sample.json` into it.  
-   Resulting path in DBFS:  
-   `dbfs:/FileStore/bronze/input/sample.json`  
-   (If you use Volumes: `dbfs:/Volumes/<catalog>/<schema>/<volume>/bronze/input/sample.json`.)
+3. **Paths used in this practice**  
+   - Input JSON: `/Volumes/workspace/default/firstdbfs_surfaltics/sample.json` (or `.../bronze/input/sample.json` if you use a subfolder).  
+   - Bronze (Parquet): `/Volumes/workspace/default/firstdbfs_surfaltics/bronze/events`.  
+   - Gold (Delta): `/Volumes/workspace/default/firstdbfs_surfaltics/gold/events`.
 
 4. **Why this step**  
-   We put the raw file in a known location so the Bronze notebook can read it. DBFS is the “internal” storage; in production you might read from S3/ADLS instead.
+   We put the raw file in a known Volume path so the Bronze notebook can read it. Unity Catalog Volumes live under `/Volumes/<catalog>/<schema>/<volume>/`; in production you might also read from S3/ADLS.
 
 ---
 
@@ -314,12 +315,12 @@ This section walks through a minimal end-to-end pipeline: raw JSON → Bronze (P
    **Workspace** → **Create** → **Notebook** (or open from Repos: `notebooks/01_bronze_ingest.py`). Set the default language to **Python** and attach a **cluster**.
 
 2. **Set paths**  
-   In the first cell, set the path to the JSON you uploaded and the Bronze output folder:
+   In the first cell, set the path to the JSON in the Volume and the Bronze output folder:
    ```python
-   input_path = "/FileStore/bronze/input/sample.json"
-   bronze_path = "/FileStore/bronze/events"
+   input_path = "/Volumes/workspace/default/firstdbfs_surfaltics/sample.json"
+   bronze_path = "/Volumes/workspace/default/firstdbfs_surfaltics/bronze/events"
    ```
-   Use your actual path if you uploaded to a different location.
+   If you uploaded `sample.json` into a subfolder (e.g. `bronze/input/`), set `input_path` to `.../firstdbfs_surfaltics/bronze/input/sample.json`.
 
 3. **Read JSON and write Parquet**  
    ```python
@@ -348,8 +349,8 @@ This section walks through a minimal end-to-end pipeline: raw JSON → Bronze (P
 
 2. **Set paths**  
    ```python
-   bronze_path = "/FileStore/bronze/events"
-   gold_path = "/FileStore/gold/events"
+   bronze_path = "/Volumes/workspace/default/firstdbfs_surfaltics/bronze/events"
+   gold_path = "/Volumes/workspace/default/firstdbfs_surfaltics/gold/events"
    ```
 
 3. **Read from Bronze, optionally transform, write to Gold**  
@@ -366,7 +367,7 @@ This section walks through a minimal end-to-end pipeline: raw JSON → Bronze (P
    ```python
    spark.read.format("delta").load(gold_path).show(5)
    ```
-   In **Data**, browse to `gold/events/` to see the Delta table files.
+   In **Catalog** → **workspace** → **Volumes** → **firstdbfs_surfaltics**, browse to `gold/events/` to see the Delta table files.
 
 5. **Why Gold**  
    Gold = “final” layer for reporting and sharing. One folder, one logical dataset, in Delta format. Next we expose it as a table in Unity Catalog.
@@ -375,23 +376,26 @@ This section walks through a minimal end-to-end pipeline: raw JSON → Bronze (P
 
 ### Step 4 — Register the Gold table in Unity Catalog
 
-1. **Create a table on the Gold path**  
+Unity Catalog **does not** support `CREATE TABLE ... LOCATION` on a path inside a Volume (or using the `dbfs:` scheme). You get: *"Creating table in Unity Catalog with file scheme dbfs is not supported"*. Tables and Volumes cannot overlap.
+
+1. **Create a managed table from the Gold data in the Volume**  
    In the same Gold notebook (or a SQL notebook), run:
    ```sql
-   CREATE TABLE IF NOT EXISTS main.default.gold_events
-   USING DELTA
-   LOCATION '/FileStore/gold/events';
+   CREATE OR REPLACE TABLE workspace.default.gold_events
+   AS SELECT * FROM delta.`/Volumes/workspace/default/firstdbfs_surfaltics/gold/events`;
    ```
-   Replace `main.default` with your `catalog.schema` if you use a different one.
+   Replace `workspace.default` with your `catalog.schema` if different. This creates a **managed** table: data is stored in the catalog’s managed storage (a copy from the Volume). The Delta files in the Volume remain.
 
 2. **What this does**  
-   Unity Catalog now has a table `main.default.gold_events` that points to the Delta files in `/FileStore/gold/events`. The data stays in place (external table); only metadata is in UC. You can run `SELECT * FROM main.default.gold_events` and connect Power BI (or other tools) to this table.
+   Unity Catalog now has a table `workspace.default.gold_events` that you can query and connect to Power BI. The table data lives in UC managed storage; the Volume path is only the source for the initial copy.
 
 3. **Verify**  
    ```python
-   spark.table("main.default.gold_events").show(5)
+   spark.table("workspace.default.gold_events").show(5)
    ```
-   Or in a SQL cell: `SELECT * FROM main.default.gold_events LIMIT 5;`
+   Or in a SQL cell: `SELECT * FROM workspace.default.gold_events LIMIT 5;`
+
+**Alternative:** To keep data in one place (external table), write Gold to an **external location** (S3/ADLS path registered in UC), then `CREATE TABLE ... USING DELTA LOCATION 's3://bucket/path'` (cloud URI, not Volume path).
 
 ---
 
@@ -405,9 +409,9 @@ Once the table is in Unity Catalog, you connect your BI tool to the Workspace an
 
 | Step | Action | Result |
 |------|--------|--------|
-| 1 | Upload JSON to DBFS | Raw file at e.g. `/FileStore/bronze/input/sample.json` |
-| 2 | Bronze notebook: read JSON → write Parquet | Data in `/FileStore/bronze/events/` (Parquet) |
-| 3 | Gold notebook: read Parquet → write Delta | Data in `/FileStore/gold/events/` (Delta) |
+| 1 | Upload JSON to Volume `firstdbfs_surfaltics` | Raw file at e.g. `/Volumes/workspace/default/firstdbfs_surfaltics/sample.json` |
+| 2 | Bronze notebook: read JSON → write Parquet | Data in `.../firstdbfs_surfaltics/bronze/events/` (Parquet) |
+| 3 | Gold notebook: read Parquet → write Delta | Data in `.../firstdbfs_surfaltics/gold/events/` (Delta) |
 | 4 | Register table in Unity Catalog | Table `main.default.gold_events` (or your catalog.schema) |
 | 5 | Connect Power BI (or SQL) | Reports and queries on `gold_events` |
 

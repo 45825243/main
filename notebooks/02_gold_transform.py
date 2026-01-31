@@ -5,8 +5,8 @@
 
 # COMMAND ----------
 
-bronze_path = "/FileStore/bronze/events"
-gold_path = "/FileStore/gold/events"
+bronze_path = "/Volumes/workspace/default/firstdbfs_surfaltics/bronze/events"
+gold_path = "/Volumes/workspace/default/firstdbfs_surfaltics/gold/events"
 
 # COMMAND ----------
 
@@ -35,17 +35,16 @@ spark.read.format("delta").load(gold_path).show(5)
 
 # MAGIC %md
 # MAGIC ## Register Table in Unity Catalog
-# MAGIC Replace `main.default` with your catalog.schema if not using default.
+# MAGIC UC does not support CREATE TABLE ... LOCATION on a Volume path (or dbfs:). Use a managed table from the Delta data in the Volume.
 
 # COMMAND ----------
 
 spark.sql("""
-  CREATE TABLE IF NOT EXISTS main.default.gold_events
-  USING DELTA
-  LOCATION '/FileStore/gold/events'
+  CREATE OR REPLACE TABLE workspace.default.gold_events
+  AS SELECT * FROM delta.`/Volumes/workspace/default/firstdbfs_surfaltics/gold/events`
 """)
 
 # COMMAND ----------
 
 # Verify: table is accessible via UC
-spark.table("main.default.gold_events").show(5)
+spark.table("workspace.default.gold_events").show(5)

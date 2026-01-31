@@ -1,13 +1,13 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC ## Bronze: Ingest JSON to Parquet
-# MAGIC Read JSON from DBFS (folder where you uploaded sample.json) and save to the Bronze folder as Parquet.
+# MAGIC Read JSON from Unity Catalog Volume firstdbfs_surfaltics and save to Bronze folder as Parquet.
 
 # COMMAND ----------
 
-# Path to JSON in DBFS (replace with your path after uploading via Data → Upload)
-input_path = "/FileStore/bronze/input/sample.json"
-bronze_path = "/FileStore/bronze/events"
+# Paths in Unity Catalog Volume firstdbfs_surfaltics (workspace.default)
+input_path = "/Volumes/workspace/default/firstdbfs_surfaltics/sample.json"
+bronze_path = "/Volumes/workspace/default/firstdbfs_surfaltics/bronze/events"
 
 # COMMAND ----------
 
