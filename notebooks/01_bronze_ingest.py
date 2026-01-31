@@ -16,6 +16,11 @@ df.printSchema()
 
 # COMMAND ----------
 
+# Optional: view query plan and physical plan (see README — Query plan and physical plan)
+df.explain("formatted")
+
+# COMMAND ----------
+
 df.show(10)
 
 # COMMAND ----------

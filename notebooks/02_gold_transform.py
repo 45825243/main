@@ -16,6 +16,11 @@ df.printSchema()
 
 # COMMAND ----------
 
+# Optional: view query plan and physical plan (see README — Query plan and physical plan)
+df.explain("formatted")
+
+# COMMAND ----------
+
 # Minimal processing (optionally: filters, rename, aggregations)
 # df = df.filter(...).select(...)
 # For this demo we simply overwrite to Gold as Delta

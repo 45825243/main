@@ -46,7 +46,23 @@ df = spark.read.json(input_path)
 df.write.mode("overwrite").format("parquet").save(bronze_path)
 ```
 
-5. Verify:
+5. **(Optional) View query plan and physical plan:**  
+   Before or after the write, you can inspect how Spark will execute (or has executed) the read/write. Run one of the following on a DataFrame (e.g. the one you built with `spark.read.json` or the one you get from `spark.read.parquet`):
+
+```python
+# Logical plan only
+df.explain(mode="simple")
+
+# Logical + physical plan (extended)
+df.explain(mode="extended")
+
+# Formatted output (easy to read in notebooks)
+df.explain("formatted")
+```
+
+   This shows the logical operators (e.g. Read, Filter) and the physical plan (FileScan, Exchange, etc.). See [README — Query plan and physical plan](README.md#query-plan-and-physical-plan) for more detail.
+
+6. Verify:
 
 ```python
 spark.read.parquet(bronze_path).show(5)
@@ -76,7 +92,10 @@ df = spark.read.parquet(bronze_path)
 df.write.mode("overwrite").format("delta").save(gold_path)
 ```
 
-5. Verify:
+5. **(Optional) View query plan and physical plan:**  
+   After building `df` (e.g. `df = spark.read.parquet(bronze_path)`), run `df.explain("formatted")` to see the logical and physical plan for the read. If you add filters or joins, run `explain` on the transformed DataFrame to see pushdown and join strategy.
+
+6. Verify:
 
 ```python
 spark.read.format("delta").load(gold_path).show(5)

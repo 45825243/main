@@ -103,13 +103,6 @@ Spark splits the data into partitions and runs tasks on the executors; the same 
 
 When you build a DataFrame or run SQL, Spark does **not** execute it immediately. It first builds a **logical plan** (what to do) and then a **physical plan** (how to run it on the cluster). Understanding both helps with debugging and tuning.
 
-| Plan | What it is | Example |
-|------|------------|--------|
-| **Logical plan** | High-level operators: which sources to read, which filters/joins/aggregations to apply, in what order. No execution details. | `Read JSON → Filter → Select columns → Write Parquet` |
-| **Physical plan** | How Spark will run the job: stages, tasks, shuffles (exchange), broadcast joins, partition counts. This is what actually runs on the driver and executors. | `FileScan → Filter → Exchange (hash partition) → SortAggregate → Exchange → Write` |
-
-**Catalyst** (Spark’s optimizer) takes the logical plan, applies rules (predicate pushdown, constant folding, join reordering, etc.), and produces an optimized logical plan. The **planner** then turns that into a **physical plan** (with specific operators like `BroadcastHashJoin`, `SortMergeJoin`, `Exchange`).
-
 **How to view plans in PySpark / Databricks:**
 
 ```python
@@ -157,10 +150,17 @@ Databricks uses a **two-plane** model: the **control plane** (Databricks-managed
 ![Databricks classic workspace architecture on AWS](https://docs.databricks.com/aws/en/assets/images/architecture-c2c83d23e2f7870f30137e97aaadea0b.png)  
 *Source: [Databricks on AWS — High-level architecture](https://docs.databricks.com/aws/en/getting-started/high-level-architecture)*
 
-For **networking** (who talks to whom, PrivateLink, VPC, etc.), the docs use a dedicated diagram:
+**What you can change vs what only Databricks can change**
 
-![Classic compute plane networking](https://docs.databricks.com/aws/en/assets/images/networking-classic-5c7b303a3f4c38590559c0dd39fd7ed6.png)  
-*Source: [Databricks on AWS — Networking](https://docs.databricks.com/aws/en/security/network)*
+| You (customer) can change | Only Databricks can change |
+|---------------------------|----------------------------|
+| Your VPC, subnets, security groups, NACLs in your cloud account | Control plane: backend services, web app, APIs, job scheduler |
+| Customer-managed VPC (if you use it): CIDR, DNS, routing | Where and how the control plane is hosted |
+| PrivateLink / VPC endpoints on your side; connectivity from your network to Databricks | PrivateLink / connectivity on Databricks’ side (their account, their endpoints) |
+| Workspace-level settings you have access to (e.g. IP access lists, some network options in the UI) | Serverless compute plane (if used): runs in Databricks’ account; networking there is managed by Databricks |
+| Firewall and egress rules for your compute (classic) in your VPC | Changes to regions, availability, or architecture of the control plane |
+
+If you need something that only Databricks controls (e.g. enable PrivateLink for your workspace, change control-plane region, open a new capability), you have to **contact Databricks** (support ticket, account team, or partner). You cannot change the control plane or Databricks-side networking yourself.
 
 Recommendation: for production use **private** options (PrivateLink, Secure Cluster Connectivity) so traffic doesn’t go over the public internet.
 
@@ -189,7 +189,33 @@ Without a cluster you cannot run any notebook cell or Job.
 | **Job** | Started for a specific Job and terminates when the Job finishes. Saves cost. |
 | **Pool (Cluster pool)** | A pool of “warm” nodes; Job clusters from the pool start faster than from scratch. |
 
-For when to use which in production, see [Section 7](#7-serverless-and-cluster-types-in-production).
+### All-purpose cluster: configuration example
+
+In the cluster **Configuration** tab you set the compute name, policy, **Databricks runtime** (e.g. 16.4 LTS with Spark 3.5.2), optional **Photon acceleration**, **worker type** (e.g. i3.2xlarge — memory and cores), **autoscaling** (min/max workers), and **termination** (e.g. after 60 minutes of inactivity). The **Summary** panel shows total memory and cores for the cluster, data access (Unity Catalog), and estimated price (DBU/h).
+
+![All-purpose cluster configuration](images/all-purpose-cluster-config.png)  
+*Configuration tab: runtime, worker type, autoscaling, termination, and summary (memory, cores, price).*
+
+Under **Advanced options** → **Spark** (or **Advanced performance** in the UI) you can add custom Spark configuration properties (see below).
+
+### Additional Spark settings
+
+You can pass extra Spark and Hadoop options to the cluster via the **Spark** config section (Advanced options). Examples that are often used with AWS and Unity Catalog / Glue:
+
+| Setting | Example value | Purpose |
+|---------|----------------|--------|
+| `spark.databricks.acl.sqlOnly` | `true` | Restrict cluster to SQL-only access (e.g. for BI). |
+| `spark.databricks.hive.metastore.glueCatalog.enabled` | `true` | Use AWS Glue as Hive metastore (when integrating with Glue). |
+| `spark.driver.maxResultSize` | `200g` | Max size of result set the driver can collect (avoid OOM on large pulls). |
+| `spark.hadoop.aws.glue.cache.db.enable` | `true` | Enable Glue DB cache. |
+| `spark.hadoop.aws.glue.cache.db.size` | `1000` | Glue DB cache size. |
+| `spark.hadoop.aws.glue.cache.db.ttl-mins` | `30` | Glue DB cache TTL (minutes). |
+| `spark.hadoop.aws.glue.cache.table.enable` | `true` | Enable Glue table cache. |
+| `spark.hadoop.aws.glue.cache.table.size` | `1000` | Glue table cache size. |
+
+Add these as **Spark** → **Spark config** key-value pairs in the cluster configuration. Exact keys and supported options depend on your Databricks runtime and cloud (AWS/Azure); check the docs for your version.
+
+For when to use which cluster type in production, see [Section 7](#7-serverless-and-cluster-types-in-production).
 
 ---
 
