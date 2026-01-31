@@ -12,6 +12,16 @@ Step-by-step pipeline: upload JSON to DBFS, read in a notebook, write to Bronze 
 
 ---
 
+## Concepts: Unity Catalog and Delta tables
+
+Before you start, two things you’ll use in this practice:
+
+**Unity Catalog (UC)** — a unified governance layer for data and AI in Databricks. It gives you a single place for metadata: catalogs, schemas, tables, views, and permissions (GRANT/REVOKE). Tables are addressed as `catalog.schema.table`. UC works with Delta tables and with cloud storage (S3, ADLS) via external locations. In this practice we use a **Unity Catalog Volume** (a folder for files under UC) for Bronze/Gold data and register a table in UC so Power BI (and other tools) can query it.
+
+**Delta tables** — tables whose data is stored in the **Delta Lake** format (Parquet files plus a transaction log). Delta gives you ACID transactions, time travel, and efficient upserts/merges. In this practice we write the Gold layer as Delta (`df.write.format("delta").save(...)`) and then register it in Unity Catalog. Delta is the default and recommended format for tables in Databricks.
+
+---
+
 ## Step 1. Upload JSON to a Unity Catalog Volume
 
 We use the Unity Catalog Volume **`firstdbfs_surfaltics`** in catalog `workspace`, schema `default`. Path: **`/Volumes/workspace/default/firstdbfs_surfaltics`**.
