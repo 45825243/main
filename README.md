@@ -26,11 +26,20 @@ This project is a step-by-step guide: from “what is Databricks” to a working
 
 ## 1. What is Databricks
 
-**Databricks** is a cloud platform for data and ML built on **Apache Spark**.
+**Databricks** is a cloud platform for data and ML built on **Apache Spark** (we cover Spark in [Section 4](#4-apache-spark-and-pyspark-in-brief)).
 
 - It is **compute**, not storage: data can live in S3, ADLS, GCS, or DBFS.
 - Databricks provides: Workspace (notebooks, jobs, MLflow), cluster management, Unity Catalog, and integrations with clouds (AWS, Azure, GCP).
 - The idea: one product for ETL, analytics, ML, and collaboration.
+
+### Official diagrams
+
+- **[High-level architecture](https://docs.databricks.com/en/getting-started/overview.html)** — Databricks object hierarchy, classic and serverless workspace architecture (official docs).
+- **[Architecture (AWS)](https://docs.databricks.com/aws/en/getting-started/architecture)** — Control plane, compute plane, and workspace storage on AWS.
+- **[Lakehouse platform](https://docs.databricks.com/en/lakehouse/index.html)** — Lakehouse overview and platform scope.
+
+![Databricks Lakehouse architecture](https://docs.databricks.com/aws/en/assets/images/lakehouse-diagram-865ba5c041f60df99ff6bee1ebaad26d.png)  
+*Source: [Databricks Lakehouse](https://docs.databricks.com/en/lakehouse/index.html)*
 
 ---
 
@@ -179,27 +188,142 @@ In the practice section we put JSON in this storage (e.g. a folder in DBFS/Manag
 
 ## 10. Practice: Bronze → Gold Pipeline
 
-Short scenario:
+This section walks through a minimal end-to-end pipeline: raw JSON → Bronze (Parquet) → Gold (Delta) → table in Unity Catalog. Each layer has a clear role.
 
-1. **Setup**
-   - Take any small JSON file.
-   - Upload it to DBFS (e.g. `/FileStore/bronze/input/sample.json` or your folder in Managed storage). Along the way: “this is our Workspace’s internal storage (DBFS / Managed).”
+### Overview
 
-2. **Bronze**
-   - Create a notebook (PySpark).
-   - Read JSON: `spark.read.json("dbfs:/path/to/sample.json")`.
-   - Save to a **bronze** folder as Parquet (or Delta): e.g. `.../bronze/events/`.
+| Layer   | Role                                      | Format   | Where                         |
+|---------|-------------------------------------------|----------|-------------------------------|
+| **Input** | Raw file you upload                      | JSON     | DBFS (e.g. FileStore)         |
+| **Bronze** | Raw data, minimal changes, columnar     | Parquet  | `.../bronze/events/`          |
+| **Gold**   | Clean, deduplicated, ready for BI/UC   | Delta    | `.../gold/events/`            |
+| **Table**  | Registered in UC for SQL/BI            | Delta    | Unity Catalog `catalog.schema.table` |
 
-3. **Gold**
-   - Create a second notebook.
-   - Read Parquet from bronze: `spark.read.parquet("dbfs:/.../bronze/events/")`.
-   - Optionally: filter, rename, aggregate.
-   - Write to **gold**: `.../gold/events/`.
+---
 
-4. **Table and Unity Catalog**
-   - In gold, create a table (Delta) and **register it in Unity Catalog** (external or managed table) so Power BI and other tools can connect to it.
+### Step 1 — Prepare and upload JSON to DBFS
 
-Step-by-step and code samples: [PRACTICE.md](PRACTICE.md).
+1. **Get a JSON file**  
+   Use any small JSON (e.g. `data/sample.json` from this repo). The file should be one JSON object per line (NDJSON) so `spark.read.json()` can read it as a table.
+
+2. **Open storage in the Workspace**  
+   In the left sidebar: **Data** → **Add** → **Upload data** (or browse to your Workspace root). This is **DBFS** — the Workspace’s internal file system (Managed Storage). What you see here is the storage that Databricks created for this Workspace.
+
+3. **Create a folder and upload**  
+   Create a folder path, e.g. `bronze/input/`, and upload `sample.json` into it.  
+   Resulting path in DBFS:  
+   `dbfs:/FileStore/bronze/input/sample.json`  
+   (If you use Volumes: `dbfs:/Volumes/<catalog>/<schema>/<volume>/bronze/input/sample.json`.)
+
+4. **Why this step**  
+   We put the raw file in a known location so the Bronze notebook can read it. DBFS is the “internal” storage; in production you might read from S3/ADLS instead.
+
+---
+
+### Step 2 — Bronze: read JSON, write Parquet
+
+1. **Create or open the Bronze notebook**  
+   **Workspace** → **Create** → **Notebook** (or open from Repos: `notebooks/01_bronze_ingest.py`). Set the default language to **Python** and attach a **cluster**.
+
+2. **Set paths**  
+   In the first cell, set the path to the JSON you uploaded and the Bronze output folder:
+   ```python
+   input_path = "/FileStore/bronze/input/sample.json"
+   bronze_path = "/FileStore/bronze/events"
+   ```
+   Use your actual path if you uploaded to a different location.
+
+3. **Read JSON and write Parquet**  
+   ```python
+   df = spark.read.json(input_path)
+   df.write.mode("overwrite").format("parquet").save(bronze_path)
+   ```
+   - `spark.read.json(...)` infers the schema from the JSON and returns a DataFrame.
+   - `df.write.mode("overwrite").format("parquet").save(...)` writes the data in Parquet format under `bronze/events/`. Parquet is columnar and efficient for analytics.
+
+4. **Verify**  
+   Run:
+   ```python
+   spark.read.parquet(bronze_path).show(5)
+   ```
+   You should see the same rows. In **Data** → browse to `bronze/events/` and you’ll see the Parquet files.
+
+5. **Why Bronze**  
+   Bronze = “raw but in a stable format”. We don’t change the data much; we just move it from JSON to Parquet and put it in a dedicated folder. Later steps read from Bronze, not from the original JSON.
+
+---
+
+### Step 3 — Gold: read Bronze (Parquet), write Gold (Delta)
+
+1. **Create or open the Gold notebook**  
+   New notebook or open `notebooks/02_gold_transform.py`. Attach the same cluster (or another one).
+
+2. **Set paths**  
+   ```python
+   bronze_path = "/FileStore/bronze/events"
+   gold_path = "/FileStore/gold/events"
+   ```
+
+3. **Read from Bronze, optionally transform, write to Gold**  
+   ```python
+   df = spark.read.parquet(bronze_path)
+   # Optional: df = df.filter(...).select(...).dropDuplicates(...)
+   df.write.mode("overwrite").format("delta").save(gold_path)
+   ```
+   - We read the Parquet data from Bronze.
+   - You can add filters, renames, aggregations, or deduplication here (Gold = “clean, business-ready”).
+   - We write as **Delta** so we get ACID and time travel; Delta is the recommended format for tables in Unity Catalog.
+
+4. **Verify**  
+   ```python
+   spark.read.format("delta").load(gold_path).show(5)
+   ```
+   In **Data**, browse to `gold/events/` to see the Delta table files.
+
+5. **Why Gold**  
+   Gold = “final” layer for reporting and sharing. One folder, one logical dataset, in Delta format. Next we expose it as a table in Unity Catalog.
+
+---
+
+### Step 4 — Register the Gold table in Unity Catalog
+
+1. **Create a table on the Gold path**  
+   In the same Gold notebook (or a SQL notebook), run:
+   ```sql
+   CREATE TABLE IF NOT EXISTS main.default.gold_events
+   USING DELTA
+   LOCATION '/FileStore/gold/events';
+   ```
+   Replace `main.default` with your `catalog.schema` if you use a different one.
+
+2. **What this does**  
+   Unity Catalog now has a table `main.default.gold_events` that points to the Delta files in `/FileStore/gold/events`. The data stays in place (external table); only metadata is in UC. You can run `SELECT * FROM main.default.gold_events` and connect Power BI (or other tools) to this table.
+
+3. **Verify**  
+   ```python
+   spark.table("main.default.gold_events").show(5)
+   ```
+   Or in a SQL cell: `SELECT * FROM main.default.gold_events LIMIT 5;`
+
+---
+
+### Step 5 — Use the table (e.g. Power BI)
+
+Once the table is in Unity Catalog, you connect your BI tool to the Workspace and choose **Unity Catalog** → catalog → schema → `gold_events`. No need to point at DBFS paths; the table is the entry point. See [Section 12](#12-connecting-power-bi) for Power BI steps.
+
+---
+
+### Summary
+
+| Step | Action | Result |
+|------|--------|--------|
+| 1 | Upload JSON to DBFS | Raw file at e.g. `/FileStore/bronze/input/sample.json` |
+| 2 | Bronze notebook: read JSON → write Parquet | Data in `/FileStore/bronze/events/` (Parquet) |
+| 3 | Gold notebook: read Parquet → write Delta | Data in `/FileStore/gold/events/` (Delta) |
+| 4 | Register table in Unity Catalog | Table `main.default.gold_events` (or your catalog.schema) |
+| 5 | Connect Power BI (or SQL) | Reports and queries on `gold_events` |
+
+Full step-by-step and troubleshooting: [PRACTICE.md](PRACTICE.md).
 
 ---
 
