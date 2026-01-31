@@ -15,7 +15,7 @@ Step-by-step pipeline: upload JSON to DBFS, read in a notebook, write to Bronze 
 ## Step 1. Upload JSON to DBFS
 
 1. Prepare a small JSON file (e.g. `data/sample.json` from the repo).
-2. In the Workspace open **Data** (or **Add** → **Upload data**).
+2. In the Workspace use **New** → **Data** (or **Create** → **Data**), then **DBFS** or **Upload files to volume**; or from a notebook **File** → **Add data**. (Exact labels may vary by version; see [docs](https://docs.databricks.com/en/ingestion/add-data/index.html) if you don’t see these.)
 3. Create a folder for input, e.g. `bronze/input/`.
 4. Upload the file into that folder (via UI or CLI).
 

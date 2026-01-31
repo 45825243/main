@@ -260,7 +260,7 @@ Practice: develop in a notebook → turn it into a Job → add a schedule.
 **DBFS** is a file-system abstraction that your Workspace sees. It sits on top of cloud storage.
 
 - In many setups, the DBFS root is backed by **Managed Storage** — storage that Databricks creates and manages for that Workspace (e.g. an S3 bucket or ADLS container).
-- Paths like `/FileStore/`, the root for user data, etc. are DBFS. In the UI: **Data** → **Add** → **Upload data** or folder browsing — that’s this storage (you can add a screenshot: Data → data management / Upload — “this is the Managed Data Storage created by the Workspace”).
+- Paths like `/FileStore/` (e.g. `/FileStore/tables/...`) are DBFS. To upload files or browse this storage in the UI, use **New** → **Data** (or **Create** → **Data**), then choose one of: **DBFS** (legacy file upload to FileStore), **Upload files to volume** (Unity Catalog volume), or **Create or modify table** (ingest into a Delta table). From a notebook you may see **File** → **Add data**. The exact menu labels can vary by Databricks version; if you don’t see these options, your org may have disabled the upload UI or use a different layout — see [Load data using the add data UI](https://docs.databricks.com/en/ingestion/add-data/index.html) and [Upload files to Databricks](https://docs.databricks.com/en/ingestion/file-upload) for the current paths.
 
 ### Storage Types
 
@@ -295,7 +295,7 @@ This section walks through a minimal end-to-end pipeline: raw JSON → Bronze (P
    Use any small JSON (e.g. `data/sample.json` from this repo). The file should be one JSON object per line (NDJSON) so `spark.read.json()` can read it as a table.
 
 2. **Open storage in the Workspace**  
-   In the left sidebar: **Data** → **Add** → **Upload data** (or browse to your Workspace root). This is **DBFS** — the Workspace’s internal file system (Managed Storage). What you see here is the storage that Databricks created for this Workspace.
+   In the Workspace: **New** → **Data** (or **Create** → **Data**), then **DBFS** (legacy upload to FileStore) or **Upload files to volume** (Unity Catalog). From a notebook: **File** → **Add data**. This is **DBFS** / Managed Storage — the Workspace’s internal file system. If your UI differs, see [Load data](https://docs.databricks.com/en/ingestion/add-data/index.html) in the docs.
 
 3. **Create a folder and upload**  
    Create a folder path, e.g. `bronze/input/`, and upload `sample.json` into it.  
