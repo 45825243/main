@@ -17,10 +17,11 @@ This project is a step-by-step guide: from “what is Databricks” to a working
 7. [Serverless and Cluster Types in Production](#7-serverless-and-cluster-types-in-production)
 8. [Notebooks, Jobs, and Schedules](#8-notebooks-jobs-and-schedules)
 9. [Storage: DBFS and Storage Types](#9-storage-dbfs-and-storage-types)
-10. [Practice: Bronze → Gold Pipeline](#10-practice-bronze--gold-pipeline)
-11. [Unity Catalog and Tables](#11-unity-catalog-and-tables)
-12. [Connecting Power BI](#12-connecting-power-bi)
-13. [GitHub and Databricks Repos](#13-github-and-databricks-repos)
+10. [Autoloader (Streaming) vs Batch](#10-autoloader-streaming-vs-batch)
+11. [Practice: Bronze → Gold Pipeline](#11-practice-bronze--gold-pipeline)
+12. [Unity Catalog and Tables](#12-unity-catalog-and-tables)
+13. [Connecting Power BI](#13-connecting-power-bi)
+14. [GitHub and Databricks Repos](#14-github-and-databricks-repos)
 
 ---
 
@@ -274,7 +275,22 @@ In the practice section we put JSON in this storage (e.g. a folder in DBFS/Manag
 
 ---
 
-## 10. Practice: Bronze → Gold Pipeline
+## 10. Autoloader (Streaming) vs Batch
+
+In the [practice](#11-practice-bronze--gold-pipeline) we use **batch** ingestion: each run reads all data from the source (e.g. `spark.read.json(path)`) and overwrites or appends. For incremental or near real-time loads, Databricks offers **Auto Loader** (Structured Streaming source `cloudFiles`).
+
+| Aspect | Batch | Auto Loader (streaming) |
+|--------|--------|--------------------------|
+| **What it does** | Reads all files in the path (or partition) on each run. | Tracks processed files via checkpoints; only **new** files are read on each run. |
+| **When to use** | One-off or scheduled full refresh; simple pipelines; no need to avoid reprocessing. | New files arriving continuously or on a schedule; you want to avoid rereading the same data. |
+| **Latency** | Depends on schedule (e.g. daily at 02:00). | Near real-time if running as a streaming query; or use `Trigger.AvailableNow` for “batch-style” runs with incremental reads. |
+| **Cost** | Simpler; you pay per run for the data scanned. | Checkpoint and (optionally) file notification (events) add a bit of setup; often cheaper than reprocessing everything. |
+
+**Auto Loader** discovers new files in cloud storage (S3, ADLS, etc.), infers schema, and supports exactly-once semantics. For production, Databricks often recommends Auto Loader with **batch triggers** (e.g. `Trigger.AvailableNow`) instead of continuous streaming when low latency is not required — same incremental behavior with lower compute cost. See [What is Auto Loader?](https://docs.databricks.com/en/ingestion/auto-loader/index.html) and [Batch vs. streaming](https://docs.databricks.com/en/ingestion/streaming) in the docs.
+
+---
+
+## 11. Practice: Bronze → Gold Pipeline
 
 This section walks through a minimal end-to-end pipeline: raw JSON → Bronze (Parquet) → Gold (Delta) → table in Unity Catalog. Each layer has a clear role.
 
@@ -401,7 +417,7 @@ Unity Catalog **does not** support `CREATE TABLE ... LOCATION` on a path inside 
 
 ### Step 5 — Use the table (e.g. Power BI)
 
-Once the table is in Unity Catalog, you connect your BI tool to the Workspace and choose **Unity Catalog** → catalog → schema → `gold_events`. No need to point at DBFS paths; the table is the entry point. See [Section 12](#12-connecting-power-bi) for Power BI steps.
+Once the table is in Unity Catalog, you connect your BI tool to the Workspace and choose **Unity Catalog** → catalog → schema → `gold_events`. No need to point at DBFS paths; the table is the entry point. See [Section 13](#13-connecting-power-bi) for Power BI steps.
 
 ---
 
@@ -419,7 +435,7 @@ Full step-by-step and troubleshooting: [PRACTICE.md](PRACTICE.md).
 
 ---
 
-## 11. Unity Catalog and Tables
+## 12. Unity Catalog and Tables
 
 - **Unity Catalog (UC)** — unified metadata catalog: schemas, tables, views, permissions (GRANT/REVOKE).
 - We **register** the gold table in UC (`CREATE TABLE ... USING delta LOCATION '...'` or `CREATE TABLE ... AS SELECT ...`).
@@ -427,7 +443,7 @@ Full step-by-step and troubleshooting: [PRACTICE.md](PRACTICE.md).
 
 ---
 
-## 12. Connecting Power BI
+## 13. Connecting Power BI
 
 - In Power BI: **Get data** → **Azure Databricks** (or **Databricks**).
 - Enter **Server hostname** (Workspace URL), **HTTP path** (from cluster or SQL Warehouse), and authentication (usually Personal Access Token or OAuth).
@@ -438,7 +454,7 @@ For production, use a **SQL Warehouse** (including Serverless) as the BI entry p
 
 ---
 
-## 13. GitHub and Databricks Repos
+## 14. GitHub and Databricks Repos
 
 Code should live in **GitHub** (or another Git), and in Databricks connect via **Repos**.
 
