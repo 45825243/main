@@ -68,9 +68,27 @@ This project is a step-by-step guide: from “what is Databricks” to a working
 
 ## 4. Apache Spark and PySpark in Brief
 
-- **Apache Spark** — a framework for distributed processing of large data (batch and streaming).
-- **RDD / DataFrame / Dataset** — data abstractions; in day-to-day work you mostly use **DataFrame** (tables).
-- **PySpark** — Spark API in Python: `spark.read`, `df.write`, SQL via `spark.sql()`.
+### Apache Spark — the engine
+
+**Apache Spark** is a **unified analytics engine** for distributed processing of large data (batch and streaming). It runs on a cluster: one **driver** coordinates the job, and **executors** on worker nodes run tasks and hold data. Spark handles distribution, scheduling, and fault tolerance — you write high-level logic (read, transform, write), and the engine parallelizes it across nodes.
+
+![Spark cluster overview](https://spark.apache.org/docs/latest/img/cluster-overview.png)  
+*Source: [Apache Spark — Cluster Mode Overview](https://spark.apache.org/docs/latest/cluster-overview.html)*
+
+### RDD / DataFrame / Dataset
+
+- **RDD** (Resilient Distributed Dataset) — low-level, immutable distributed collection; flexible but more verbose.
+- **DataFrame** — table-like API with named columns and a schema; optimized by the Catalyst optimizer. In day-to-day work you mostly use **DataFrame** (or Dataset in Scala/Java).
+- **Dataset** — typed API on top of DataFrame (strong in Scala/Java; in Python, DataFrame is the main abstraction).
+
+### PySpark — why it’s convenient
+
+**PySpark** is the Python API for Spark: `spark.read`, `df.write`, SQL via `spark.sql()`. It’s convenient because:
+
+- **Familiar language** — Python is widely used in data engineering and analytics; no need to learn Scala/Java to use Spark.
+- **Single API for batch and streaming** — same DataFrame/SQL API for batch jobs and structured streaming.
+- **Rich ecosystem** — Spark SQL, DataFrames, MLlib, and integration with Pandas (e.g. `df.toPandas()`, `spark.createDataFrame(pandas_df)`).
+- **You don’t write distributed code** — you write transformations (filter, join, aggregate); Spark distributes data and work across the cluster. No manual multi-threading or task partitioning.
 
 Example:
 
@@ -79,7 +97,7 @@ df = spark.read.json("/path/to/file.json")
 df.write.mode("overwrite").parquet("/path/to/output")
 ```
 
-Spark distributes data across cluster nodes — no need to write multi-threaded code yourself.
+Spark splits the data into partitions and runs tasks on the executors; the same code scales from one machine to many nodes.
 
 ---
 
