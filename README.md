@@ -99,6 +99,35 @@ df.write.mode("overwrite").parquet("/path/to/output")
 
 Spark splits the data into partitions and runs tasks on the executors; the same code scales from one machine to many nodes.
 
+### Query plan and physical plan
+
+When you build a DataFrame or run SQL, Spark does **not** execute it immediately. It first builds a **logical plan** (what to do) and then a **physical plan** (how to run it on the cluster). Understanding both helps with debugging and tuning.
+
+| Plan | What it is | Example |
+|------|------------|--------|
+| **Logical plan** | High-level operators: which sources to read, which filters/joins/aggregations to apply, in what order. No execution details. | `Read JSON → Filter → Select columns → Write Parquet` |
+| **Physical plan** | How Spark will run the job: stages, tasks, shuffles (exchange), broadcast joins, partition counts. This is what actually runs on the driver and executors. | `FileScan → Filter → Exchange (hash partition) → SortAggregate → Exchange → Write` |
+
+**Catalyst** (Spark’s optimizer) takes the logical plan, applies rules (predicate pushdown, constant folding, join reordering, etc.), and produces an optimized logical plan. The **planner** then turns that into a **physical plan** (with specific operators like `BroadcastHashJoin`, `SortMergeJoin`, `Exchange`).
+
+**How to view plans in PySpark / Databricks:**
+
+```python
+# Logical plan only
+df.explain(mode="simple")   # or df.explain()
+
+# Logical + physical (default in many Spark versions)
+df.explain(mode="extended")
+
+# Formatted (easier to read in notebooks)
+df.explain("formatted")
+
+# With cost info (if supported)
+df.explain(mode="cost")
+```
+
+Use these when a query is slow or behaves oddly: check whether filters are pushed down to the source, whether the join strategy (broadcast vs sort-merge) is what you expect, and where shuffles occur.
+
 ---
 
 ## 5. Workspace Creation and Networking
@@ -110,6 +139,9 @@ The Workspace is created in the cloud console (AWS/Azure) or via the Databricks 
 - Databricks clusters must **reach** storage (S3, ADLS, internal DBs) and your network (VPN, VPC).
 - Network setup affects: security, privacy, and compliance with corporate policies.
 
+As a data engineer you will likely work on a platform where access is already configured (VPC, PrivateLink, etc.). Networking is a large topic in its own right, and connectivity issues between Databricks and the cloud (or on‑prem) often come from here — so it helps to know the basics and where to look when something fails to connect...
+But we will keep this topic for another session
+
 ### By Cloud
 
 | Cloud | What to Configure |
@@ -117,6 +149,18 @@ The Workspace is created in the cloud console (AWS/Azure) or via the Databricks 
 | **AWS** | VPC, subnets, security groups; S3 endpoint or NAT for internet; optionally PrivateLink / VPC endpoint for Databricks. |
 | **Azure** | VNet, subnets, Private Endpoints to ADLS and Databricks; optionally Secure Cluster Connectivity (no public IP). |
 | **GCP** | VPC, firewall; optionally Private Service Connect. |
+
+### Basic architecture: Databricks and the cloud (networking)
+
+Databricks uses a **two-plane** model: the **control plane** (Databricks-managed: UI, APIs, job scheduling) and the **compute plane** (where your clusters run and data is processed). In the classic setup, the compute plane lives in **your** cloud account (e.g. your VPC on AWS); the control plane is in Databricks’ account. The diagram below shows how the workspace and your cloud account connect.
+
+![Databricks classic workspace architecture on AWS](https://docs.databricks.com/aws/en/assets/images/architecture-c2c83d23e2f7870f30137e97aaadea0b.png)  
+*Source: [Databricks on AWS — High-level architecture](https://docs.databricks.com/aws/en/getting-started/high-level-architecture)*
+
+For **networking** (who talks to whom, PrivateLink, VPC, etc.), the docs use a dedicated diagram:
+
+![Classic compute plane networking](https://docs.databricks.com/aws/en/assets/images/networking-classic-5c7b303a3f4c38590559c0dd39fd7ed6.png)  
+*Source: [Databricks on AWS — Networking](https://docs.databricks.com/aws/en/security/network)*
 
 Recommendation: for production use **private** options (PrivateLink, Secure Cluster Connectivity) so traffic doesn’t go over the public internet.
 
